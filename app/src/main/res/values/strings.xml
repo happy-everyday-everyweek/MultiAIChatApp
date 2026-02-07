@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">多AI聊天室</string>
+    <string name="send">发送</string>
+    <string name="input_hint">输入消息...</string>
+</resources>
