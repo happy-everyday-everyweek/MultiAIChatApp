@@ -1,14 +1,17 @@
 package com.maibot.multichat;
 
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
@@ -16,7 +19,12 @@ public class MainActivity extends AppCompatActivity {
     private EditText inputMessage;
     private ImageButton sendButton;
     private List<ChatMessage> messages;
-    private AIBotManager botManager;
+    private WebSocketManager wsManager;
+    private String userId;
+    private String userName = "Android用户";
+    
+    // MaiBot服务器地址 - 请修改为你的服务器地址
+    private static final String SERVER_URL = "ws://192.168.1.100:8001";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,11 +32,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         initViews();
-        initBots();
+        loadUserId();
         setupRecyclerView();
         setupListeners();
-        
-        addSystemMessage("欢迎来到多AI聊天室！");
+        connectToServer();
     }
 
     private void initViews() {
@@ -37,17 +44,18 @@ public class MainActivity extends AppCompatActivity {
         sendButton = findViewById(R.id.sendButton);
     }
 
-    private void initBots() {
-        messages = new ArrayList<>();
-        botManager = new AIBotManager(this);
+    private void loadUserId() {
+        SharedPreferences prefs = getSharedPreferences("maibot_chat", MODE_PRIVATE);
+        userId = prefs.getString("user_id", null);
         
-        botManager.addBot(new AIBot("麦麦", "我是麦麦，一个活泼可爱的AI助手！", "#FF6B9D"));
-        botManager.addBot(new AIBot("小智", "我是小智，擅长技术问题解答。", "#4A90E2"));
-        botManager.addBot(new AIBot("诗诗", "我是诗诗，喜欢文学和艺术。", "#9B59B6"));
-        botManager.addBot(new AIBot("阿乐", "我是阿乐，幽默风趣的段子手。", "#F39C12"));
+        if (userId == null) {
+            userId = UUID.randomUUID().toString();
+            prefs.edit().putString("user_id", userId).apply();
+        }
     }
 
     private void setupRecyclerView() {
+        messages = new ArrayList<>();
         chatAdapter = new ChatAdapter(messages);
         LinearLayoutManager layoutManager = new LinearLayoutManager(this);
         recyclerView.setLayoutManager(layoutManager);
@@ -63,26 +71,75 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void sendMessage() {
-        String text = inputMessage.getText().toString().trim();
-        if (text.isEmpty()) return;
-
-        ChatMessage userMessage = new ChatMessage(text, "用户", true, "#000000");
-        addMessage(userMessage);
-        inputMessage.setText("");
-
-        botManager.processUserMessage(text, new AIBotManager.ResponseCallback() {
+    private void connectToServer() {
+        wsManager = new WebSocketManager(this, SERVER_URL);
+        
+        wsManager.connect(userId, userName, new WebSocketManager.MessageCallback() {
             @Override
-            public void onResponse(String botName, String response, String color) {
+            public void onConnected(String sessionId) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        ChatMessage botMessage = new ChatMessage(response, botName, false, color);
-                        addMessage(botMessage);
+                        Toast.makeText(MainActivity.this, "已连接到服务器", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            @Override
+            public void onMessageReceived(ChatMessage message) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        addMessage(message);
+                    }
+                });
+            }
+
+            @Override
+            public void onHistoryReceived(ChatMessage[] historyMessages) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        for (ChatMessage msg : historyMessages) {
+                            addMessage(msg);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "错误: " + error, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            @Override
+            public void onDisconnected() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, "已断开连接", Toast.LENGTH_SHORT).show();
                     }
                 });
             }
         });
+    }
+
+    private void sendMessage() {
+        String text = inputMessage.getText().toString().trim();
+        if (text.isEmpty()) return;
+
+        if (!wsManager.isConnected()) {
+            Toast.makeText(this, "未连接到服务器", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        wsManager.sendMessage(text);
+        inputMessage.setText("");
     }
 
     private void addMessage(ChatMessage message) {
@@ -91,8 +148,11 @@ public class MainActivity extends AppCompatActivity {
         recyclerView.smoothScrollToPosition(messages.size() - 1);
     }
 
-    private void addSystemMessage(String text) {
-        ChatMessage systemMessage = new ChatMessage(text, "系统", false, "#999999");
-        addMessage(systemMessage);
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (wsManager != null) {
+            wsManager.disconnect();
+        }
     }
 }

@@ -6,6 +6,7 @@ public class ChatMessage {
     private boolean isUser;
     private String color;
     private long timestamp;
+    private String messageId;
 
     public ChatMessage(String content, String senderName, boolean isUser, String color) {
         this.content = content;
@@ -13,6 +14,14 @@ public class ChatMessage {
         this.isUser = isUser;
         this.color = color;
         this.timestamp = System.currentTimeMillis();
+    }
+
+    public ChatMessage(String content, String senderName, boolean isUser, String color, long timestamp) {
+        this.content = content;
+        this.senderName = senderName;
+        this.isUser = isUser;
+        this.color = color;
+        this.timestamp = timestamp;
     }
 
     public String getContent() {
@@ -33,5 +42,13 @@ public class ChatMessage {
 
     public long getTimestamp() {
         return timestamp;
+    }
+
+    public String getMessageId() {
+        return messageId;
+    }
+
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
     }
 }
