@@ -10,12 +10,13 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/colorPrimary"
-        android:elevation="4dp">
+        android:elevation="4dp"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
         
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="多AI聊天室"
+            android:text="麦麦聊天室"
             android:textColor="@android:color/white"
             android:textSize="20sp"
             android:textStyle="bold" />
