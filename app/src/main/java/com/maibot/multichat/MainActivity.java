@@ -152,30 +152,29 @@ public class MainActivity extends AppCompatActivity {
         
         addSystemMessage("AI们正在思考...");
 
-        // 调用所有Bot
+        // 调用所有Bot（异步回复）
         botManager.sendMessage(text, new MaiBotManager.MessageCallback() {
             @Override
-            public void onResponse(List<MaiBotManager.BotResponse> responses) {
+            public void onResponse(MaiBotManager.BotResponse response) {
+                // 每个Bot的回复会异步到达
                 runOnUiThread(() -> {
-                    // 移除"正在思考"消息
-                    if (!messages.isEmpty() && messages.get(messages.size() - 1).getSenderName().equals("系统")) {
+                    // 移除"正在思考"消息（只在第一次回复时）
+                    if (isProcessing && !messages.isEmpty() && 
+                        messages.get(messages.size() - 1).getSenderName().equals("系统")) {
                         messages.remove(messages.size() - 1);
                         chatAdapter.notifyItemRemoved(messages.size());
+                        isProcessing = false;
+                        sendButton.setEnabled(true);
                     }
                     
-                    // 添加所有Bot的回复
-                    for (MaiBotManager.BotResponse response : responses) {
-                        ChatMessage botMessage = new ChatMessage(
-                            response.content,
-                            response.bot_name,
-                            false,
-                            response.color
-                        );
-                        addMessage(botMessage);
-                    }
-                    
-                    isProcessing = false;
-                    sendButton.setEnabled(true);
+                    // 添加Bot的回复
+                    ChatMessage botMessage = new ChatMessage(
+                        response.content,
+                        response.bot_name,
+                        false,
+                        response.color
+                    );
+                    addMessage(botMessage);
                 });
             }
 

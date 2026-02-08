@@ -1,6 +1,8 @@
 package com.maibot.multichat;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
@@ -15,11 +17,16 @@ import java.util.concurrent.Executors;
 
 public class MaiBotManager {
     private static final String TAG = "MaiBotManager";
+    private static final int POLL_INTERVAL_MS = 500; // 轮询间隔500ms
+    
     private Python python;
     private PyObject maibotModule;
     private Gson gson;
     private ExecutorService executor;
+    private Handler mainHandler;
+    private Handler pollingHandler;
     private boolean initialized = false;
+    private boolean isPolling = false;
 
     public static class BotInfo {
         public String id;
@@ -40,13 +47,15 @@ public class MaiBotManager {
     }
 
     public interface MessageCallback {
-        void onResponse(List<BotResponse> responses);
+        void onResponse(BotResponse response);
         void onError(String error);
     }
 
     public MaiBotManager(Context context) {
         this.gson = new Gson();
         this.executor = Executors.newSingleThreadExecutor();
+        this.mainHandler = new Handler(Looper.getMainLooper());
+        this.pollingHandler = new Handler(Looper.getMainLooper());
         
         // 初始化Python环境
         if (!Python.isStarted()) {
@@ -62,7 +71,12 @@ public class MaiBotManager {
                 maibotModule = python.getModule("maibot_bridge");
                 
                 // 初始化Bot实例
-                maibotModule.callAttr("initialize_bots", apiKey, botCount);
+                boolean success = maibotModule.callAttr("initialize_bots", apiKey, botCount).toBoolean();
+                
+                if (!success) {
+                    mainHandler.post(() -> callback.onError("初始化失败"));
+                    return;
+                }
                 
                 // 获取Bot列表
                 String botListJson = maibotModule.callAttr("get_bot_list").toString();
@@ -70,37 +84,87 @@ public class MaiBotManager {
                 List<BotInfo> bots = gson.fromJson(botListJson, listType);
                 
                 initialized = true;
-                callback.onSuccess(bots);
+                
+                // 启动消息轮询
+                startMessagePolling();
+                
+                mainHandler.post(() -> callback.onSuccess(bots));
                 
             } catch (Exception e) {
                 Log.e(TAG, "初始化失败", e);
-                callback.onError("初始化失败: " + e.getMessage());
+                mainHandler.post(() -> callback.onError("初始化失败: " + e.getMessage()));
             }
         });
     }
 
+    private MessageCallback currentCallback = null;
+    
     public void sendMessage(String message, MessageCallback callback) {
         if (!initialized) {
             callback.onError("MaiBot未初始化");
             return;
         }
 
+        this.currentCallback = callback;
+        
         executor.execute(() -> {
             try {
-                // 调用Python发送消息
-                String responsesJson = maibotModule.callAttr("send_message", message).toString();
+                // 调用Python发送消息（异步触发）
+                maibotModule.callAttr("send_message", message);
                 
-                // 解析响应
-                Type listType = new TypeToken<List<BotResponse>>(){}.getType();
-                List<BotResponse> responses = gson.fromJson(responsesJson, listType);
-                
-                callback.onResponse(responses);
+                // 消息已发送，回复会通过轮询机制异步返回
+                Log.d(TAG, "消息已发送到MaiBot");
                 
             } catch (Exception e) {
                 Log.e(TAG, "发送消息失败", e);
-                callback.onError("发送消息失败: " + e.getMessage());
+                mainHandler.post(() -> {
+                    if (currentCallback != null) {
+                        currentCallback.onError("发送消息失败: " + e.getMessage());
+                    }
+                });
             }
         });
+    }
+    
+    private void startMessagePolling() {
+        if (isPolling) return;
+        
+        isPolling = true;
+        pollingHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!isPolling || !initialized) return;
+                
+                executor.execute(() -> {
+                    try {
+                        // 获取待处理的消息
+                        String messagesJson = maibotModule.callAttr("get_pending_messages").toString();
+                        Type listType = new TypeToken<List<BotResponse>>(){}.getType();
+                        List<BotResponse> responses = gson.fromJson(messagesJson, listType);
+                        
+                        // 处理每个回复
+                        for (BotResponse response : responses) {
+                            mainHandler.post(() -> {
+                                if (currentCallback != null) {
+                                    currentCallback.onResponse(response);
+                                }
+                            });
+                        }
+                        
+                    } catch (Exception e) {
+                        Log.e(TAG, "轮询消息失败", e);
+                    }
+                });
+                
+                // 继续轮询
+                pollingHandler.postDelayed(this, POLL_INTERVAL_MS);
+            }
+        });
+    }
+    
+    private void stopMessagePolling() {
+        isPolling = false;
+        pollingHandler.removeCallbacksAndMessages(null);
     }
 
     public void clearHistory() {
@@ -120,6 +184,7 @@ public class MaiBotManager {
     }
 
     public void shutdown() {
+        stopMessagePolling();
         executor.shutdown();
     }
 }

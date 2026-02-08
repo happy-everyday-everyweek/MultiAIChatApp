@@ -21,7 +21,7 @@ android {
         python {
             version "3.8"
             pip {
-                // MaiBot核心依赖（只安装Android兼容的）
+                // MaiBot核心依赖（Android兼容版本）
                 install "httpx==0.27.0"
                 install "pydantic==2.6.0"
                 install "python-dotenv==1.0.0"
@@ -29,7 +29,21 @@ android {
                 install "peewee==3.17.0"
                 install "jieba==0.42.1"
                 install "pypinyin==0.51.0"
-                // 注意：不安装faiss-cpu, matplotlib等不兼容的库
+                install "aiohttp==3.9.0"
+                install "colorama==0.4.6"
+                install "rich==13.7.0"
+                install "structlog==24.1.0"
+                install "tomlkit==0.12.3"
+                install "json-repair==0.25.0"
+                install "msgpack==1.0.7"
+                install "pillow==10.2.0"
+                
+                // 注意：以下库不兼容Android，已排除
+                // - faiss-cpu (需要特殊编译)
+                // - matplotlib (依赖太多)
+                // - numpy (Chaquopy已内置)
+                // - pandas (太大)
+                // - fastapi/uvicorn (服务器端，不需要)
             }
         }
     }
