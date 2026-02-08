@@ -6,6 +6,8 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.SeekBar;
+import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
@@ -14,6 +16,8 @@ public class SettingsActivity extends AppCompatActivity {
     private EditText apiKeyInput;
     private EditText baseUrlInput;
     private EditText modelNameInput;
+    private SeekBar botCountSeekBar;
+    private TextView botCountText;
     private Button saveButton;
     private SharedPreferences prefs;
 
@@ -40,6 +44,8 @@ public class SettingsActivity extends AppCompatActivity {
         apiKeyInput = findViewById(R.id.apiKeyInput);
         baseUrlInput = findViewById(R.id.baseUrlInput);
         modelNameInput = findViewById(R.id.modelNameInput);
+        botCountSeekBar = findViewById(R.id.botCountSeekBar);
+        botCountText = findViewById(R.id.botCountText);
         saveButton = findViewById(R.id.saveButton);
     }
 
@@ -47,13 +53,30 @@ public class SettingsActivity extends AppCompatActivity {
         String apiKey = prefs.getString("api_key", "");
         String baseUrl = prefs.getString("base_url", "https://api.deepseek.com");
         String modelName = prefs.getString("model_name", "deepseek-chat");
+        int botCount = prefs.getInt("bot_count", 3);
         
         apiKeyInput.setText(apiKey);
         baseUrlInput.setText(baseUrl);
         modelNameInput.setText(modelName);
+        botCountSeekBar.setProgress(botCount - 1);
+        botCountText.setText(botCount + " 个Bot");
     }
 
     private void setupListeners() {
+        botCountSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int count = progress + 1;
+                botCountText.setText(count + " 个Bot");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
         saveButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -66,6 +89,7 @@ public class SettingsActivity extends AppCompatActivity {
         String apiKey = apiKeyInput.getText().toString().trim();
         String baseUrl = baseUrlInput.getText().toString().trim();
         String modelName = modelNameInput.getText().toString().trim();
+        int botCount = botCountSeekBar.getProgress() + 1;
 
         if (apiKey.isEmpty()) {
             Toast.makeText(this, "请输入API Key", Toast.LENGTH_SHORT).show();
@@ -84,9 +108,10 @@ public class SettingsActivity extends AppCompatActivity {
             .putString("api_key", apiKey)
             .putString("base_url", baseUrl)
             .putString("model_name", modelName)
+            .putInt("bot_count", botCount)
             .apply();
 
-        Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "设置已保存，请重启应用生效", Toast.LENGTH_LONG).show();
         finish();
     }
 

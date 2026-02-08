@@ -23,9 +23,10 @@ public class MainActivity extends AppCompatActivity {
     private EditText inputMessage;
     private ImageButton sendButton;
     private List<ChatMessage> messages;
-    private DeepSeekClient aiClient;
+    private MaiBotManager botManager;
     private SharedPreferences prefs;
     private boolean isProcessing = false;
+    private boolean isInitialized = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,7 +41,9 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         setupRecyclerView();
         setupListeners();
-        checkApiKey();
+        
+        botManager = new MaiBotManager(this);
+        checkAndInitialize();
     }
 
     private void initViews() {
@@ -66,24 +69,25 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void checkApiKey() {
+    private void checkAndInitialize() {
         String apiKey = prefs.getString("api_key", "");
         
         if (apiKey.isEmpty()) {
             showWelcomeDialog();
         } else {
-            initAIClient();
-            addSystemMessage("欢迎来到多AI聊天室！开始和麦麦聊天吧~");
+            initializeBots();
         }
     }
 
     private void showWelcomeDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("欢迎使用")
-            .setMessage("首次使用需要配置DeepSeek API Key\n\n" +
+            .setTitle("欢迎使用麦麦群聊")
+            .setMessage("这是一个多AI群聊应用，您可以与多个AI机器人同时对话！\n\n" +
+                       "首次使用需要配置DeepSeek API Key：\n\n" +
                        "1. 访问 https://platform.deepseek.com\n" +
                        "2. 注册并获取API Key\n" +
-                       "3. 在设置中填入API Key")
+                       "3. 在设置中填入API Key\n" +
+                       "4. 选择Bot数量（1-5个）")
             .setPositiveButton("去设置", (dialog, which) -> {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             })
@@ -92,17 +96,40 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    private void initAIClient() {
+    private void initializeBots() {
         String apiKey = prefs.getString("api_key", "");
-        String baseUrl = prefs.getString("base_url", "https://api.deepseek.com");
-        String modelName = prefs.getString("model_name", "deepseek-chat");
+        int botCount = prefs.getInt("bot_count", 3);
         
-        aiClient = new DeepSeekClient(apiKey, baseUrl, modelName);
+        addSystemMessage("正在初始化" + botCount + "个AI Bot...");
+        
+        botManager.initialize(apiKey, botCount, new MaiBotManager.InitCallback() {
+            @Override
+            public void onSuccess(List<MaiBotManager.BotInfo> bots) {
+                runOnUiThread(() -> {
+                    isInitialized = true;
+                    StringBuilder botNames = new StringBuilder("群聊成员：");
+                    for (int i = 0; i < bots.size(); i++) {
+                        if (i > 0) botNames.append("、");
+                        botNames.append(bots.get(i).name);
+                    }
+                    addSystemMessage(botNames.toString());
+                    addSystemMessage("初始化完成！开始聊天吧~");
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    addSystemMessage("初始化失败: " + error);
+                    Toast.makeText(MainActivity.this, "初始化失败，请检查设置", Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
 
     private void sendMessage() {
-        if (aiClient == null) {
-            Toast.makeText(this, "请先在设置中配置API Key", Toast.LENGTH_SHORT).show();
+        if (!isInitialized) {
+            Toast.makeText(this, "Bot未初始化，请先配置API Key", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -110,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
         if (text.isEmpty()) return;
 
         if (isProcessing) {
-            Toast.makeText(this, "AI正在思考中，请稍候...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "AI们正在思考中，请稍候...", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -123,54 +150,49 @@ public class MainActivity extends AppCompatActivity {
         isProcessing = true;
         sendButton.setEnabled(false);
         
-        ChatMessage typingMessage = new ChatMessage("正在思考...", "麦麦", false, "#FF6B9D");
-        addMessage(typingMessage);
-        final int typingPosition = messages.size() - 1;
+        addSystemMessage("AI们正在思考...");
 
-        // 调用AI
-        aiClient.sendMessage(text, new DeepSeekClient.ResponseCallback() {
+        // 调用所有Bot
+        botManager.sendMessage(text, new MaiBotManager.MessageCallback() {
             @Override
-            public void onSuccess(String response) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        // 移除"正在思考"消息
-                        messages.remove(typingPosition);
-                        chatAdapter.notifyItemRemoved(typingPosition);
-                        
-                        // 添加AI回复
-                        ChatMessage aiMessage = new ChatMessage(response, "麦麦", false, "#FF6B9D");
-                        addMessage(aiMessage);
-                        
-                        isProcessing = false;
-                        sendButton.setEnabled(true);
+            public void onResponse(List<MaiBotManager.BotResponse> responses) {
+                runOnUiThread(() -> {
+                    // 移除"正在思考"消息
+                    if (!messages.isEmpty() && messages.get(messages.size() - 1).getSenderName().equals("系统")) {
+                        messages.remove(messages.size() - 1);
+                        chatAdapter.notifyItemRemoved(messages.size());
                     }
+                    
+                    // 添加所有Bot的回复
+                    for (MaiBotManager.BotResponse response : responses) {
+                        ChatMessage botMessage = new ChatMessage(
+                            response.content,
+                            response.bot_name,
+                            false,
+                            response.color
+                        );
+                        addMessage(botMessage);
+                    }
+                    
+                    isProcessing = false;
+                    sendButton.setEnabled(true);
                 });
             }
 
             @Override
             public void onError(String error) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        // 移除"正在思考"消息
-                        messages.remove(typingPosition);
-                        chatAdapter.notifyItemRemoved(typingPosition);
-                        
-                        // 显示错误消息
-                        ChatMessage errorMessage = new ChatMessage(
-                            "抱歉，出错了: " + error, 
-                            "系统", 
-                            false, 
-                            "#FF0000"
-                        );
-                        addMessage(errorMessage);
-                        
-                        isProcessing = false;
-                        sendButton.setEnabled(true);
-                        
-                        Toast.makeText(MainActivity.this, "错误: " + error, Toast.LENGTH_LONG).show();
+                runOnUiThread(() -> {
+                    // 移除"正在思考"消息
+                    if (!messages.isEmpty() && messages.get(messages.size() - 1).getSenderName().equals("系统")) {
+                        messages.remove(messages.size() - 1);
+                        chatAdapter.notifyItemRemoved(messages.size());
                     }
+                    
+                    addSystemMessage("错误: " + error);
+                    isProcessing = false;
+                    sendButton.setEnabled(true);
+                    
+                    Toast.makeText(MainActivity.this, "发送失败: " + error, Toast.LENGTH_LONG).show();
                 });
             }
         });
@@ -215,8 +237,8 @@ public class MainActivity extends AppCompatActivity {
             .setPositiveButton("确定", (dialog, which) -> {
                 messages.clear();
                 chatAdapter.notifyDataSetChanged();
-                if (aiClient != null) {
-                    aiClient.clearHistory();
+                if (botManager != null) {
+                    botManager.clearHistory();
                 }
                 addSystemMessage("聊天记录已清空");
             })
@@ -227,11 +249,18 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 从设置返回时重新初始化AI客户端
+        // 从设置返回时检查是否需要重新初始化
         String apiKey = prefs.getString("api_key", "");
-        if (!apiKey.isEmpty() && aiClient == null) {
-            initAIClient();
-            addSystemMessage("API配置已更新，可以开始聊天了~");
+        if (!apiKey.isEmpty() && !isInitialized) {
+            initializeBots();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (botManager != null) {
+            botManager.shutdown();
         }
     }
 }
